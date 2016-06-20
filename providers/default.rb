@@ -17,6 +17,8 @@
 #
 
 require 'fileutils'
+require 'chef/mixin/from_file'
+require 'chef/provider'
 
 action :create do
   log %Q(Deploying build "#{new_resource.build}" for application "#{new_resource.application}")
@@ -40,10 +42,9 @@ action :create do
   build_source = "s3://#{builds_bucket}/#{new_resource.application}/#{new_resource.build}.tar.gz"
   release_path = ::File.join(release_root, new_resource.build)
   destination_path = "#{release_path}.tar.gz"
-  symlink = ::File.join(app_root, 'latest')
+  symlink = ::File.join(app_root, 'current')
 
   if ! ::File.exists?(symlink) or ! ::File.exists?(release_path) or ::File.readlink(symlink) != release_path
-
     ruby_block "build_install" do
       block do
 
@@ -85,6 +86,14 @@ action :create do
         Chef::Log.info %Q(Changing permissions on "#{release_path}" to #{new_resource.mode})
         `chmod -R #{new_resource.mode} #{release_path}`
 
+        unless new_resource.callback_file.nil?
+          Chef::Log.info "#{new_resource} queueing checkdeploy hook #{new_resource.callback_file}"
+          recipe_eval do
+            Dir.chdir(release_path) do
+              from_file(new_resource.callback_file) if ::File.exist?(new_resource.callback_file)
+            end
+          end
+        end
 
         Chef::Log.info %Q(Updating Symlink "#{symlink}")
         # Symlink overwriting seems to do some weird stuff, so remove it first...
